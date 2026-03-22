@@ -2,14 +2,75 @@
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
 from models import OIDNode
 from compiler import MIBCompiler
 
 _DUMMY = "__dummy__"
+
+_SETTINGS_DIR = Path.home() / ".config" / "oidbrowser"
+_SETTINGS_FILE = _SETTINGS_DIR / "settings.json"
+
+_THEMES = {
+    "dark": {
+        "bg": "#1e1e1e",
+        "fg": "#d4d4d4",
+        "select_bg": "#264f78",
+        "select_fg": "#ffffff",
+        "tree_bg": "#252526",
+        "tree_fg": "#cccccc",
+        "tree_field": "#252526",
+        "text_bg": "#1e1e1e",
+        "text_fg": "#d4d4d4",
+        "frame_bg": "#2d2d2d",
+        "label_fg": "#cccccc",
+        "entry_bg": "#3c3c3c",
+        "entry_fg": "#d4d4d4",
+        "button_bg": "#3c3c3c",
+        "button_fg": "#d4d4d4",
+        "heading_bg": "#333333",
+        "heading_fg": "#cccccc",
+        "border": "#555555",
+    },
+    "light": {
+        "bg": "#ffffff",
+        "fg": "#000000",
+        "select_bg": "#0078d7",
+        "select_fg": "#ffffff",
+        "tree_bg": "#ffffff",
+        "tree_fg": "#000000",
+        "tree_field": "#ffffff",
+        "text_bg": "#ffffff",
+        "text_fg": "#000000",
+        "frame_bg": "#f0f0f0",
+        "label_fg": "#000000",
+        "entry_bg": "#ffffff",
+        "entry_fg": "#000000",
+        "button_bg": "#e0e0e0",
+        "button_fg": "#000000",
+        "heading_bg": "#e0e0e0",
+        "heading_fg": "#000000",
+        "border": "#cccccc",
+    },
+}
+
+
+def _load_settings() -> dict:
+    try:
+        return json.loads(_SETTINGS_FILE.read_text())
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_settings(settings: dict) -> None:
+    _SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+    _SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
 
 
 class OIDBrowserApp:
@@ -32,7 +93,12 @@ class OIDBrowserApp:
         # Currently selected node
         self._selected_node: OIDNode | None = None
 
+        # Theme
+        self._settings = _load_settings()
+        self._theme = self._settings.get("theme", "dark")
+
         self._build_ui()
+        self._apply_theme()
         # Auto-load last used folder from cache on startup
         self.root.after(100, self._auto_load_last)
 
@@ -50,6 +116,9 @@ class OIDBrowserApp:
 
         self.status_var = tk.StringVar(value="No MIBs loaded")
         ttk.Label(top, textvariable=self.status_var).pack(side=tk.LEFT, padx=10)
+
+        self.theme_btn = ttk.Button(top, text="☀", command=self._toggle_theme, width=3)
+        self.theme_btn.pack(side=tk.RIGHT, padx=(5, 0))
 
         self.progress = ttk.Progressbar(top, mode="indeterminate", length=200)
         # Hidden by default — only shown during loading
@@ -131,6 +200,71 @@ class OIDBrowserApp:
         self.desc_text.configure(yscrollcommand=desc_scroll.set)
         desc_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.desc_text.pack(fill=tk.BOTH, expand=True)
+
+    # --- Theme ---
+
+    def _toggle_theme(self) -> None:
+        self._theme = "light" if self._theme == "dark" else "dark"
+        self._settings["theme"] = self._theme
+        _save_settings(self._settings)
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        t = _THEMES[self._theme]
+        self.theme_btn.configure(text="☀" if self._theme == "dark" else "☽")
+
+        style = ttk.Style()
+        self.root.configure(bg=t["frame_bg"])
+
+        # ttk widgets
+        style.theme_use("clam")
+        style.configure(".", background=t["frame_bg"], foreground=t["fg"],
+                         fieldbackground=t["entry_bg"], bordercolor=t["border"],
+                         troughcolor=t["bg"])
+        style.configure("TFrame", background=t["frame_bg"])
+        style.configure("TLabel", background=t["frame_bg"], foreground=t["label_fg"])
+        style.configure("TButton", background=t["button_bg"], foreground=t["button_fg"])
+        style.map("TButton",
+                   background=[("active", t["select_bg"])],
+                   foreground=[("active", t["select_fg"])])
+        style.configure("TEntry", fieldbackground=t["entry_bg"], foreground=t["entry_fg"])
+        style.configure("TLabelframe", background=t["frame_bg"], foreground=t["label_fg"])
+        style.configure("TLabelframe.Label", background=t["frame_bg"], foreground=t["label_fg"])
+        style.configure("TPanedwindow", background=t["frame_bg"])
+
+        # Treeview
+        style.configure("Treeview",
+                         background=t["tree_bg"],
+                         foreground=t["tree_fg"],
+                         fieldbackground=t["tree_field"],
+                         bordercolor=t["border"])
+        style.map("Treeview",
+                   background=[("selected", t["select_bg"])],
+                   foreground=[("selected", t["select_fg"])])
+        style.configure("Treeview.Heading",
+                         background=t["heading_bg"],
+                         foreground=t["heading_fg"])
+        style.map("Treeview.Heading",
+                   background=[("active", t["select_bg"])])
+
+        # Scrollbar
+        style.configure("TScrollbar",
+                         background=t["button_bg"],
+                         troughcolor=t["bg"],
+                         bordercolor=t["border"],
+                         arrowcolor=t["fg"])
+
+        # Progressbar
+        style.configure("TProgressbar",
+                         background=t["select_bg"],
+                         troughcolor=t["bg"])
+
+        # tk.Text widget (not ttk — configure directly)
+        if hasattr(self, "desc_text"):
+            self.desc_text.configure(bg=t["text_bg"], fg=t["text_fg"],
+                                      insertbackground=t["fg"],
+                                      selectbackground=t["select_bg"],
+                                      selectforeground=t["select_fg"])
 
     # --- Clipboard ---
 
@@ -222,10 +356,12 @@ class OIDBrowserApp:
             messagebox.showinfo("Unresolved OIDs", "All OIDs resolved successfully.")
             return
 
+        t = _THEMES[self._theme]
         win = tk.Toplevel(self.root)
         win.title(f"Unresolved OIDs ({len(unresolved)})")
         win.geometry("800x500")
         win.transient(self.root)
+        win.configure(bg=t["frame_bg"])
 
         # Summary by reason
         missing_parents: dict[str, list[tuple[str, str]]] = {}  # parent -> [(name, module)]
@@ -262,7 +398,9 @@ class OIDBrowserApp:
             tv.insert("", tk.END, values=(len(children), f"{example_name} (needs: {parent_name})", example_mod))
 
         # Detail text at bottom
-        detail = tk.Text(frame, height=8, wrap=tk.WORD, font=("TkFixedFont", 9))
+        detail = tk.Text(frame, height=8, wrap=tk.WORD, font=("TkFixedFont", 9),
+                          bg=t["text_bg"], fg=t["text_fg"],
+                          selectbackground=t["select_bg"], selectforeground=t["select_fg"])
         detail.pack(fill=tk.X, pady=(5, 0))
         detail.insert("1.0",
             "Unresolved definitions are those whose parent symbol could not be found\n"
