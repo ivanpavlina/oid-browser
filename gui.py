@@ -103,6 +103,12 @@ class OIDBrowserApp:
         self.root.after(100, self._auto_load_last)
 
     def _build_ui(self) -> None:
+        # Ctrl+A select-all for all Entry and Text widgets
+        self.root.bind_class("Entry", "<Control-a>",
+                             lambda e: (e.widget.select_range(0, tk.END), e.widget.icursor(tk.END), "break")[2])
+        self.root.bind_class("Text", "<Control-a>",
+                             lambda e: (e.widget.tag_add(tk.SEL, "1.0", tk.END), e.widget.mark_set(tk.INSERT, tk.END), "break")[2])
+
         # === Top bar (pack first — fixed height at top) ===
         top = ttk.Frame(self.root, padding=5)
         top.pack(side=tk.TOP, fill=tk.X)
